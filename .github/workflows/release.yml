@@ -17,7 +17,6 @@ jobs:
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,7 +42,7 @@ jobs:
             iPadBatteryExercise/Stress/StressSession.swift Tests/StressSessionChecks.swift \
             -o "$RUNNER_TEMP/stress-session-checks"
           "$RUNNER_TEMP/stress-session-checks"
-          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s Tests -p 'test_publish_release.py' -v
+          TMPDIR="$RUNNER_TEMP" PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s Tests -p 'test_publish_release.py' -v
 
       - name: Build unsigned iPad app
         run: |
