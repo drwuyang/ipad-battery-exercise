@@ -1,0 +1,12 @@
+# Local project notes
+/AGENTS.md
+/DEVELOPMENT_PLAN.md
+/HANDOFF.md
+/.handoff/
+
+# Local Xcode state and build products
+**/xcuserdata/
+DerivedData/
+build/
+*.ipa
+.DS_Store

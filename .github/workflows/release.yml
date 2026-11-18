@@ -1,0 +1,96 @@
+name: Build and publish IPA
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check version and Xcode
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Use a version tag such as v1.0.0." >&2
+            exit 1
+          }
+          xcodebuild -version
+          if ! xcrun -sdk iphoneos metal --version >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -sdk iphoneos metal --version
+
+      - name: Check session and release logic
+        run: |
+          set -euo pipefail
+          swiftc -swift-version 5 \
+            iPadBatteryExercise/Stress/StressSession.swift Tests/StressSessionChecks.swift \
+            -o "$RUNNER_TEMP/stress-session-checks"
+          "$RUNNER_TEMP/stress-session-checks"
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s Tests -p 'test_publish_release.py' -v
+
+      - name: Build unsigned iPad app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iPadBatteryExercise.xcodeproj \
+            -scheme iPadBatteryExercise \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            MARKETING_VERSION="${GITHUB_REF_NAME#v}" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            clean build
+
+      - name: Package and verify IPA
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iPadBatteryExercise.app"
+          test -f "$app/Info.plist"
+          test -f "$app/default.metallib"
+          xcrun lipo -verify_arch arm64 "$app/iPadBatteryExercise"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$app" "$RUNNER_TEMP/ipa/Payload/iPadBatteryExercise.app"
+          ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/iPadBatteryExercise.ipa"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+          ipa = Path(os.environ['RUNNER_TEMP']) / 'iPadBatteryExercise.ipa'
+          with ZipFile(ipa) as archive:
+              assert archive.testzip() is None, 'IPA archive is corrupt'
+              names = set(archive.namelist())
+              for item in ('Info.plist', 'iPadBatteryExercise', 'default.metallib', 'Assets.car'):
+                  assert f'Payload/iPadBatteryExercise.app/{item}' in names, f'Missing {item}'
+          print(f'Verified {ipa.name}: {ipa.stat().st_size} bytes')
+          PY
+
+      - name: Upload to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B scripts/publish_release.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$GITHUB_REF_NAME" \
+            --ipa "$RUNNER_TEMP/iPadBatteryExercise.ipa"
