@@ -27,6 +27,7 @@ private final class FakeDisplay: StressDisplay {
 }
 
 @main
+@MainActor
 private struct StressSessionChecks {
     static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         guard condition() else { fatalError(message) }

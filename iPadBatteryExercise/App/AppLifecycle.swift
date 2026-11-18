@@ -46,6 +46,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 }
 
+@MainActor
 private final class ScreenPowerController: StressDisplay {
     private let screen: UIScreen
     private var previous: (brightness: CGFloat, idleTimerDisabled: Bool)?

@@ -17,11 +17,13 @@ protocol StressWorkload: AnyObject {
     func stop()
 }
 
+@MainActor
 protocol StressDisplay: AnyObject {
     func enterStressMode()
     func restore()
 }
 
+@MainActor
 final class StressSession {
     private let cpu: StressWorkload
     private let gpu: StressWorkload
