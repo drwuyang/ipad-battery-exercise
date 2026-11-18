@@ -68,7 +68,7 @@ jobs:
           app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iPadBatteryExercise.app"
           test -f "$app/Info.plist"
           test -f "$app/default.metallib"
-          xcrun lipo -verify_arch arm64 "$app/iPadBatteryExercise"
+          xcrun lipo "$app/iPadBatteryExercise" -verify_arch arm64
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           ditto "$app" "$RUNNER_TEMP/ipa/Payload/iPadBatteryExercise.app"
           ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/iPadBatteryExercise.ipa"
