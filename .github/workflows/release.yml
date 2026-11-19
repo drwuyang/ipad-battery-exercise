@@ -42,6 +42,10 @@ jobs:
             iPadBatteryExercise/Stress/StressSession.swift Tests/StressSessionChecks.swift \
             -o "$RUNNER_TEMP/stress-session-checks"
           "$RUNNER_TEMP/stress-session-checks"
+          swiftc -swift-version 5 \
+            iPadBatteryExercise/UI/AppCPUUsage.swift Tests/AppCPUUsageChecks.swift \
+            -o "$RUNNER_TEMP/app-cpu-usage-checks"
+          "$RUNNER_TEMP/app-cpu-usage-checks"
           TMPDIR="$RUNNER_TEMP" PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s Tests -p 'test_publish_release.py' -v
 
       - name: Build unsigned iPad app

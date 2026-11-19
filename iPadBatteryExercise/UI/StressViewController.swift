@@ -7,6 +7,12 @@ final class StressViewController: UIViewController {
     private let startButton = UIButton(type: .system)
     private let stopButton = UIButton(type: .system)
     private let statusLabel = UILabel()
+    private let cpuUsageLabel = UILabel()
+    private let panel = UIStackView()
+    private let cpuUsage = AppCPUUsage()
+    private var motionTimer: Timer?
+    private var cpuTimer: Timer?
+    private var motionStart: TimeInterval = 0
 
     init(session: StressSession) {
         self.session = session
@@ -15,6 +21,11 @@ final class StressViewController: UIViewController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        motionTimer?.invalidate()
+        cpuTimer?.invalidate()
     }
 
     override var prefersStatusBarHidden: Bool { true }
@@ -26,16 +37,10 @@ final class StressViewController: UIViewController {
         session.onStateChange = { [weak self] state in self?.render(state) }
         session.onError = { [weak self] message in self?.showError(message) }
         render(session.state)
+        startCPUMonitoring()
     }
 
     private func configureInterface() {
-        let title = UILabel()
-        title.text = "iPad 电池测试"
-        title.font = .preferredFont(forTextStyle: .largeTitle)
-        title.adjustsFontForContentSizeCategory = true
-        title.textAlignment = .center
-        title.textColor = .white
-
         cpuSwitch.isOn = true
         gpuSwitch.isOn = true
         cpuSwitch.addTarget(self, action: #selector(selectionChanged), for: .valueChanged)
@@ -53,6 +58,12 @@ final class StressViewController: UIViewController {
         stopButton.configuration = stopStyle
         stopButton.addTarget(self, action: #selector(stopTapped), for: .touchUpInside)
 
+        cpuUsageLabel.font = .preferredFont(forTextStyle: .subheadline)
+        cpuUsageLabel.adjustsFontForContentSizeCategory = true
+        cpuUsageLabel.textColor = .secondaryLabel
+        cpuUsageLabel.textAlignment = .center
+        cpuUsageLabel.text = "CPU（本 App）：—"
+
         statusLabel.font = .preferredFont(forTextStyle: .title2)
         statusLabel.adjustsFontForContentSizeCategory = true
         statusLabel.textColor = .secondaryLabel
@@ -66,22 +77,20 @@ final class StressViewController: UIViewController {
             statusLabel.centerYAnchor.constraint(equalTo: statusArea.centerYAnchor)
         ])
 
-        let column = UIStackView(arrangedSubviews: [
-            title, optionRow("CPU", toggle: cpuSwitch), optionRow("GPU", toggle: gpuSwitch),
-            startButton, statusArea, stopButton
-        ])
-        column.axis = .vertical
-        column.spacing = 24
-        column.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(column)
-        let preferredWidth = column.widthAnchor.constraint(equalTo: view.safeAreaLayoutGuide.widthAnchor, multiplier: 0.75)
+        [optionRow("CPU", toggle: cpuSwitch), optionRow("GPU", toggle: gpuSwitch),
+         cpuUsageLabel, startButton, statusArea, stopButton].forEach { panel.addArrangedSubview($0) }
+        panel.axis = .vertical
+        panel.spacing = 24
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(panel)
+        let preferredWidth = panel.widthAnchor.constraint(equalTo: view.safeAreaLayoutGuide.widthAnchor, multiplier: 0.75)
         preferredWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            column.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            column.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
-            column.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
-            column.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
-            column.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32),
+            panel.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            panel.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            panel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+            panel.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
+            panel.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32),
             preferredWidth,
             startButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 50),
             stopButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
@@ -108,8 +117,7 @@ final class StressViewController: UIViewController {
         gpuSwitch.isEnabled = isIdle
         startButton.isEnabled = isIdle && (cpuSwitch.isOn || gpuSwitch.isOn)
         stopButton.isEnabled = !isIdle
-        statusLabel.layer.removeAllAnimations()
-        statusLabel.transform = .identity
+        stopMotion()
 
         switch state {
         case .idle:
@@ -119,12 +127,55 @@ final class StressViewController: UIViewController {
         case .running:
             statusLabel.text = "测试中"
             if !UIAccessibility.isReduceMotionEnabled {
-                UIView.animate(withDuration: 9, delay: 0,
-                               options: [.autoreverse, .repeat, .allowUserInteraction, .curveEaseInOut]) {
-                    self.statusLabel.transform = CGAffineTransform(translationX: 90, y: 12)
+                startMotion()
+            }
+        }
+    }
+
+    private func startMotion() {
+        motionStart = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.movePanel() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        motionTimer = timer
+    }
+
+    private func stopMotion() {
+        motionTimer?.invalidate()
+        motionTimer = nil
+        panel.transform = .identity
+    }
+
+    private func movePanel() {
+        guard motionTimer != nil, case .running = session.state else { return }
+        let safeFrame = view.safeAreaLayoutGuide.layoutFrame
+        let horizontalRoom = min(panel.center.x - safeFrame.minX, safeFrame.maxX - panel.center.x)
+            - panel.bounds.width / 2 - 16
+        let verticalRoom = min(panel.center.y - safeFrame.minY, safeFrame.maxY - panel.center.y)
+            - panel.bounds.height / 2 - 16
+        let horizontalRange = max(0, min(90, horizontalRoom))
+        let verticalRange = max(0, min(32, verticalRoom))
+        let phase = (ProcessInfo.processInfo.systemUptime - motionStart) * 2 * .pi / 22
+        // Move the view itself so its touch targets follow the visible controls.
+        panel.transform = CGAffineTransform(translationX: horizontalRange * CGFloat(sin(phase)),
+                                            y: verticalRange * CGFloat(sin(phase / 2)))
+    }
+
+    private func startCPUMonitoring() {
+        _ = cpuUsage.sample()
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                if let value = self.cpuUsage.sample() {
+                    self.cpuUsageLabel.text = "CPU（本 App）：\(Int(value.rounded()))%"
+                } else {
+                    self.cpuUsageLabel.text = "CPU（本 App）：—"
                 }
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        cpuTimer = timer
     }
 
     private func showError(_ message: String) {
