@@ -105,7 +105,7 @@ class PublishReleaseTest(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.tmp = tempfile.TemporaryDirectory(prefix="release-test-")
-        self.ipa = Path(self.tmp.name) / "iPadBatteryExercise.ipa"
+        self.ipa = Path(self.tmp.name) / "iPadBatteryExercise-v1.2.3.ipa"
         self.ipa.write_bytes(b"example ipa content")
 
     def tearDown(self):

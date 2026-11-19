@@ -24,7 +24,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-将 `<用户名>` 替换成实际 GitHub 用户名。版本标签须为 `v主版本.次版本.修订版本`，例如 `v1.0.0`。推送标签后，Actions 使用 `macos-26` 和 Xcode 26.6 编译未签名的 ARM64 App，将 `.ipa` 直接上传到对应的 GitHub Release。工作流不上传 Actions Artifact，也不使用 Apple 账户或签名材料。
+将 `<用户名>` 替换成实际 GitHub 用户名。版本标签须为 `v主版本.次版本.修订版本`，例如 `v1.0.0`。推送标签后，Actions 使用 `macos-26` 和 Xcode 26.6 编译未签名的 ARM64 App，将带版本号的 `.ipa`（例如 `iPadBatteryExercise-v1.0.3.ipa`）直接上传到对应的 GitHub Release。工作流不上传 Actions Artifact，也不使用 Apple 账户或签名材料。
 
 工作流先创建草稿、上传附件，再发布 Release。如果上传或发布失败，检查 Actions 日志和 Release 草稿后可重新运行作业；已有同名附件只有在文件大小和 SHA-256 均一致时才会被复用。
 

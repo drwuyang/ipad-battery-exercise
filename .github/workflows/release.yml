@@ -17,6 +17,7 @@ jobs:
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      IPA_NAME: iPadBatteryExercise-${{ github.ref_name }}.ipa
     steps:
       - uses: actions/checkout@v7
         with:
@@ -75,12 +76,12 @@ jobs:
           xcrun lipo "$app/iPadBatteryExercise" -verify_arch arm64
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           ditto "$app" "$RUNNER_TEMP/ipa/Payload/iPadBatteryExercise.app"
-          ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/iPadBatteryExercise.ipa"
+          ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/ipa/Payload" "$RUNNER_TEMP/$IPA_NAME"
           python3 - <<'PY'
           import os
           from pathlib import Path
           from zipfile import ZipFile
-          ipa = Path(os.environ['RUNNER_TEMP']) / 'iPadBatteryExercise.ipa'
+          ipa = Path(os.environ['RUNNER_TEMP']) / os.environ['IPA_NAME']
           with ZipFile(ipa) as archive:
               assert archive.testzip() is None, 'IPA archive is corrupt'
               names = set(archive.namelist())
@@ -96,4 +97,4 @@ jobs:
           python3 -B scripts/publish_release.py \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$GITHUB_REF_NAME" \
-            --ipa "$RUNNER_TEMP/iPadBatteryExercise.ipa"
+            --ipa "$RUNNER_TEMP/$IPA_NAME"
