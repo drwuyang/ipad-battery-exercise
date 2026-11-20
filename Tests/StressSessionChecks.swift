@@ -13,6 +13,12 @@ private final class FakeWorkload: StressWorkload {
     }
 
     func stop() { stops += 1 }
+
+    func resetObservations() {
+        starts = 0
+        stops = 0
+        failures = []
+    }
 }
 
 private struct TestError: LocalizedError {
@@ -34,31 +40,58 @@ private struct StressSessionChecks {
     }
 
     static func main() {
+        firstActivationStartsBoth()
         ignoresInvalidAndRepeatedStarts()
         cpuOnlyPausesAndResumes()
+        stoppingWhileRunningDoesNotResume()
         stoppingWhilePausedDoesNotResume()
         failedStartRollsBack()
+        failedAutomaticStartDoesNotRetry()
         staleFailureCannotStopNewRun()
         print("StressSession checks passed")
+    }
+
+    static func firstActivationStartsBoth() {
+        let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
+        let session = StressSession(cpu: cpu, gpu: gpu, display: display)
+        expect(session.state == .idle && cpu.starts == 0 && gpu.starts == 0,
+               "Work must not start before the scene is active")
+        session.sceneDidBecomeActive()
+        expect(session.state == .running(WorkloadSelection(cpu: true, gpu: true)),
+               "First activation must start CPU and GPU")
+        expect(cpu.starts == 1 && gpu.starts == 1 && display.entries == 1,
+               "First activation must start each workload once and dim the display")
+        session.sceneDidBecomeActive()
+        expect(cpu.starts == 1 && gpu.starts == 1, "Repeated activation must not start duplicate work")
     }
 
     static func ignoresInvalidAndRepeatedStarts() {
         let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
         let session = StressSession(cpu: cpu, gpu: gpu, display: display)
         session.start(cpu: true, gpu: true)
+        expect(cpu.starts == 0 && gpu.starts == 0, "Inactive scene started work")
         session.sceneDidBecomeActive()
-        session.start(cpu: false, gpu: false)
-        expect(cpu.starts == 0 && gpu.starts == 0, "Invalid start launched work")
-        session.start(cpu: true, gpu: true)
         session.start(cpu: true, gpu: true)
         expect(cpu.starts == 1 && gpu.starts == 1, "Repeated start launched duplicate work")
         session.stop()
+        session.start(cpu: false, gpu: false)
+        expect(session.state == .idle, "Empty selection launched work")
+    }
+
+    static func activeIdleSession(cpu: FakeWorkload, gpu: FakeWorkload, display: FakeDisplay) -> StressSession {
+        let session = StressSession(cpu: cpu, gpu: gpu, display: display)
+        session.sceneDidBecomeActive()
+        session.stop()
+        cpu.resetObservations()
+        gpu.resetObservations()
+        display.entries = 0
+        display.restorations = 0
+        return session
     }
 
     static func cpuOnlyPausesAndResumes() {
         let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
-        let session = StressSession(cpu: cpu, gpu: gpu, display: display)
-        session.sceneDidBecomeActive()
+        let session = activeIdleSession(cpu: cpu, gpu: gpu, display: display)
         session.start(cpu: true, gpu: false)
         expect(session.state == .running(WorkloadSelection(cpu: true, gpu: false)), "CPU run did not start")
         expect(cpu.starts == 1 && gpu.starts == 0, "Unselected GPU started")
@@ -73,11 +106,21 @@ private struct StressSessionChecks {
         expect(session.state == .idle && display.restorations == 2, "Stop did not restore idle")
     }
 
+    static func stoppingWhileRunningDoesNotResume() {
+        let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
+        let session = StressSession(cpu: cpu, gpu: gpu, display: display)
+        session.sceneDidBecomeActive()
+        session.stop()
+        session.sceneWillResignActive()
+        session.sceneDidBecomeActive()
+        expect(session.state == .idle, "Manually stopped session restarted")
+        expect(cpu.starts == 1 && gpu.starts == 1, "Workloads restarted after manual stop")
+    }
+
     static func stoppingWhilePausedDoesNotResume() {
         let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
         let session = StressSession(cpu: cpu, gpu: gpu, display: display)
         session.sceneDidBecomeActive()
-        session.start(cpu: true, gpu: true)
         session.sceneWillResignActive()
         session.stop()
         session.sceneDidBecomeActive()
@@ -87,23 +130,36 @@ private struct StressSessionChecks {
 
     static func failedStartRollsBack() {
         let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
-        let session = StressSession(cpu: cpu, gpu: gpu, display: display)
+        let session = activeIdleSession(cpu: cpu, gpu: gpu, display: display)
         var error = ""
         session.onError = { error = $0 }
         gpu.shouldFail = true
-        session.sceneDidBecomeActive()
         session.start(cpu: true, gpu: true)
         expect(session.state == .idle, "Failed start did not return to idle")
         expect(cpu.stops == 1 && gpu.stops == 1, "Failed start did not cancel both workloads")
         expect(display.entries == 0 && error == "测试启动失败", "Failed start did not report error")
     }
 
-    static func staleFailureCannotStopNewRun() {
+    static func failedAutomaticStartDoesNotRetry() {
         let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
         let session = StressSession(cpu: cpu, gpu: gpu, display: display)
+        var error = ""
+        session.onError = { error = $0 }
+        gpu.shouldFail = true
+        session.sceneDidBecomeActive()
+        expect(session.state == .idle && error == "测试启动失败", "Failed auto-start did not return to idle")
+        expect(cpu.stops == 1 && gpu.stops == 1 && display.entries == 0,
+               "Failed auto-start did not cancel work")
+        session.sceneWillResignActive()
+        session.sceneDidBecomeActive()
+        expect(session.state == .idle && gpu.starts == 1, "Failed auto-start retried without user action")
+    }
+
+    static func staleFailureCannotStopNewRun() {
+        let cpu = FakeWorkload(), gpu = FakeWorkload(), display = FakeDisplay()
+        let session = activeIdleSession(cpu: cpu, gpu: gpu, display: display)
         var errors = 0
         session.onError = { _ in errors += 1 }
-        session.sceneDidBecomeActive()
         session.start(cpu: false, gpu: true)
         let staleFailure = gpu.failures[0]
         session.sceneWillResignActive()

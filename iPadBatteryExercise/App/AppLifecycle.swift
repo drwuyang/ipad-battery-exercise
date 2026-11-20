@@ -14,6 +14,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
         stressSession?.stop()
+        stressSession = nil
     }
 }
 
@@ -27,7 +28,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else { return }
         let stressSession = appDelegate.session(for: windowScene.screen)
         let window = UIWindow(windowScene: windowScene)
-        window.rootViewController = StressViewController(session: stressSession)
+        let controller = StressViewController(session: stressSession)
+        window.rootViewController = controller
+        controller.loadViewIfNeeded()
         self.session = stressSession
         self.window = window
         window.makeKeyAndVisible()

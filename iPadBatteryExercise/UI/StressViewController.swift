@@ -41,8 +41,8 @@ final class StressViewController: UIViewController {
     }
 
     private func configureInterface() {
-        cpuSwitch.isOn = true
-        gpuSwitch.isOn = true
+        cpuSwitch.isOn = WorkloadSelection.defaultSelection.cpu
+        gpuSwitch.isOn = WorkloadSelection.defaultSelection.gpu
         cpuSwitch.addTarget(self, action: #selector(selectionChanged), for: .valueChanged)
         gpuSwitch.addTarget(self, action: #selector(selectionChanged), for: .valueChanged)
 

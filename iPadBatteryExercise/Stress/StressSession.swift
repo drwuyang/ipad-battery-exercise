@@ -3,6 +3,8 @@ import Foundation
 struct WorkloadSelection: Equatable {
     let cpu: Bool
     let gpu: Bool
+
+    static let defaultSelection = WorkloadSelection(cpu: true, gpu: true)
 }
 
 enum StressState: Equatable {
@@ -29,6 +31,7 @@ final class StressSession {
     private let gpu: StressWorkload
     private let display: StressDisplay
     private var sceneIsActive = false
+    private var isFirstActivation = true
     private var runID: UUID?
 
     private(set) var state: StressState = .idle {
@@ -71,6 +74,11 @@ final class StressSession {
 
     func sceneDidBecomeActive() {
         sceneIsActive = true
+        if isFirstActivation {
+            isFirstActivation = false
+            run(.defaultSelection)
+            return
+        }
         guard case let .paused(selection) = state else { return }
         run(selection)
     }
